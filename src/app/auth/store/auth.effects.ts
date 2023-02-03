@@ -5,8 +5,9 @@ import { Effect, ofType, Actions } from "@ngrx/effects";
 import { of } from "rxjs";
 import { catchError, map, switchMap, tap } from "rxjs/operators";
 import { environment } from "src/environments/environment";
+import { AuthService } from "../auth.service";
 import { User } from "../user.model";
-import { AUTH, Auth, AuthFail, LoginStart, LOGIN_START, LOGOUT, SignupStart, SIGNUP_START } from "./auth.actions";
+import { AUTH, Auth, AuthFail, AutoLogin, AUTO_LOGIN, LoginStart, LOGIN_START, LOGOUT, SignupStart, SIGNUP_START } from "./auth.actions";
 
 export interface AuthRespData {
     idToken: string;
@@ -17,10 +18,19 @@ export interface AuthRespData {
     registed?: boolean;
 }
 
+interface UserData {
+    email: string;
+    id: string;
+    _token: string;
+    _tokenExpDate: string;
+}
+
 const handleAuth = (expiresIn: number, email: string, localId: string, idToken: string) => {
     const expDate = new Date(new Date().getTime() + expiresIn * 1000)
     const user = new User(email, localId, idToken, expDate)
-    // console.log(of(new Login(user)))
+
+    localStorage.setItem('userData', JSON.stringify(user))
+
     return new Auth(user)
 }
 
@@ -54,6 +64,9 @@ export class AuthEffects {
                 password: signupAction.credentials.password,
                 returnSecureToken: true
             }).pipe(
+                tap(resData => {
+                    this.authService.setLogoutTime(+resData.expiresIn * 1000)
+                }),
                 map((resData: AuthRespData) => {
                     return handleAuth(+resData.expiresIn, resData.email, resData.localId, resData.idToken)
                 }),
@@ -73,6 +86,9 @@ export class AuthEffects {
                 password: authData.credentials.password,
                 returnSecureToken: true
             }).pipe(
+                tap(resData => {
+                    this.authService.setLogoutTime(+resData.expiresIn * 1000)
+                }),
                 map((resData: AuthRespData) => {
                     return handleAuth(+resData.expiresIn, resData.email, resData.localId, resData.idToken)
                 }),
@@ -86,11 +102,46 @@ export class AuthEffects {
     @Effect({
         dispatch: false
     })
-    authRedirect = this.actions$.pipe(ofType(AUTH, LOGOUT), tap(() => {
-        this.router.navigate(['/'])
+    authRedirect = this.actions$.pipe(ofType(AUTH), tap(authAction => {
+        const act = (authAction as Auth)
+        if (act.redirect) this.router.navigate(['/'])
+    }));
+
+
+    @Effect()
+    authAutoLogin = this.actions$.pipe(
+        ofType(AUTO_LOGIN),
+        map(() => {
+            const uD: UserData = JSON.parse(localStorage.getItem("userData"))
+
+            if (!uD) return {
+                type: 'VOID'
+            }
+
+            const tokenExpDate = new Date(uD._tokenExpDate)
+            const loadedUser = new User(uD.email, uD.id, uD._token, tokenExpDate)
+
+            if (loadedUser.token) {
+                const expDur = tokenExpDate.getTime() - new Date().getTime()
+                this.authService.setLogoutTime(expDur)
+                return new Auth(loadedUser, false)
+            }
+            return {
+                type: 'VOID'
+            }
+        })
+    )
+
+    @Effect({
+        dispatch: false
+    })
+    authLogout = this.actions$.pipe(ofType(LOGOUT), tap(() => {
+        this.authService.clearLogoutTime();
+        localStorage.removeItem('userData');
+        this.router.navigate(['/auth'])
     }))
 
-    constructor(private actions$: Actions, private http: HttpClient, private router: Router) { }
+    constructor(private actions$: Actions, private http: HttpClient, private router: Router, private authService: AuthService) { }
 
 
 }
