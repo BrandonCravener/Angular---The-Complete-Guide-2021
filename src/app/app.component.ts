@@ -1,18 +1,21 @@
 import { Component, OnInit } from '@angular/core';
-import { Store } from '@ngrx/store';
-import { AuthService } from './auth/auth.service';
-import { AutoLogin } from './auth/store/auth.actions';
-import * as fromApp from './store/app.reducer'
+import { HttpClient } from '@angular/common/http';
+
+import { Post } from './post.model';
+
 @Component({
   selector: 'app-root',
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css']
 })
 export class AppComponent implements OnInit {
+  posts: Post[] = [];
 
-  constructor(private authService: AuthService, private store: Store<fromApp.AppState>) { }
+  constructor(private http: HttpClient) {}
 
-  ngOnInit(): void {
-    this.store.dispatch(new AutoLogin())
+  ngOnInit() {
+    this.http
+      .get<Post[]>('https://jsonplaceholder.typicode.com/posts')
+      .subscribe(fetchedPosts => (this.posts = fetchedPosts));
   }
 }
